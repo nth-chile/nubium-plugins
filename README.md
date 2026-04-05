@@ -2,10 +2,6 @@
 
 Plugin registry for the [Nubium](https://github.com/nth-chile/nubium) music notation editor.
 
-## Installing plugins
-
-Browse and install plugins from within Nubium's plugin browser.
-
 ## Submitting a plugin
 
 Open a PR that adds a directory under `plugins/` with:
