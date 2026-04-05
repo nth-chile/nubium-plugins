@@ -1,0 +1,182 @@
+name: Review Plugin Submission
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find changed plugins
+        id: changed
+        run: |
+          plugins=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep '^plugins/' | cut -d/ -f2 | sort -u)
+          echo "plugins=$plugins" >> $GITHUB_OUTPUT
+
+      - name: Validate manifests
+        run: |
+          for plugin in ${{ steps.changed.outputs.plugins }}; do
+            dir="plugins/$plugin"
+            manifest="$dir/plugin.json"
+
+            if [ ! -f "$manifest" ]; then
+              echo "::error::Missing plugin.json in $dir"
+              exit 1
+            fi
+
+            # Check required fields
+            for field in id name version description author minAppVersion main; do
+              val=$(jq -r ".$field" "$manifest")
+              if [ "$val" = "null" ] || [ -z "$val" ]; then
+                echo "::error::Missing required field '$field' in $manifest"
+                exit 1
+              fi
+            done
+
+            # Check id matches directory name
+            id=$(jq -r '.id' "$manifest")
+            if [ "$id" != "$plugin" ]; then
+              echo "::error::Plugin id '$id' does not match directory name '$plugin'"
+              exit 1
+            fi
+
+            # Check bundle exists
+            main=$(jq -r '.main' "$manifest")
+            if [ ! -f "$dir/$main" ]; then
+              echo "::error::Bundle file '$main' not found in $dir"
+              exit 1
+            fi
+
+            # Check source exists
+            if [ ! -d "$dir/src" ]; then
+              echo "::error::Source directory 'src/' not found in $dir"
+              exit 1
+            fi
+
+            echo "✓ $plugin manifest valid"
+          done
+
+      - name: Static security checks
+        run: |
+          for plugin in ${{ steps.changed.outputs.plugins }}; do
+            dir="plugins/$plugin"
+            echo "Scanning $plugin..."
+
+            # Check for dangerous patterns in source
+            if grep -rn 'eval\s*(' "$dir/src/" 2>/dev/null; then
+              echo "::error::eval() found in $dir/src/"
+              exit 1
+            fi
+
+            if grep -rn 'new\s\+Function\s*(' "$dir/src/" 2>/dev/null; then
+              echo "::error::Function() constructor found in $dir/src/"
+              exit 1
+            fi
+
+            if grep -rn 'document\.cookie' "$dir/src/" 2>/dev/null; then
+              echo "::error::document.cookie access found in $dir/src/"
+              exit 1
+            fi
+
+            # Check for undeclared network usage
+            permissions=$(jq -r '.permissions // [] | .[]' "$dir/plugin.json")
+            if echo "$permissions" | grep -q 'network'; then
+              echo "  Network permission declared — skipping fetch check"
+            else
+              if grep -rn 'fetch\s*(' "$dir/src/" 2>/dev/null || grep -rn 'XMLHttpRequest' "$dir/src/" 2>/dev/null; then
+                echo "::error::Network calls found in $dir/src/ but 'network' permission not declared"
+                exit 1
+              fi
+            fi
+
+            echo "✓ $plugin static checks passed"
+          done
+
+  ai-review:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed plugins
+        id: changed
+        run: |
+          plugins=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep '^plugins/' | cut -d/ -f2 | sort -u)
+          echo "plugins=$plugins" >> $GITHUB_OUTPUT
+
+      - name: AI security review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          for plugin in ${{ steps.changed.outputs.plugins }}; do
+            dir="plugins/$plugin"
+            manifest=$(cat "$dir/plugin.json")
+            source=$(find "$dir/src" -type f -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' | head -20 | xargs cat 2>/dev/null)
+            diff=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.sha }} -- "$dir/")
+
+            response=$(curl -s https://api.anthropic.com/v1/messages \
+              -H "content-type: application/json" \
+              -H "x-api-key: $ANTHROPIC_API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "$(jq -n \
+                --arg manifest "$manifest" \
+                --arg source "$source" \
+                --arg diff "$diff" \
+                '{
+                  model: "claude-sonnet-4-20250514",
+                  max_tokens: 1024,
+                  messages: [{
+                    role: "user",
+                    content: ("Review this Nubium plugin submission for security issues.\n\nManifest:\n" + $manifest + "\n\nSource code:\n" + $source + "\n\nDiff (if update):\n" + $diff + "\n\nCheck for:\n1. Malicious behavior (data exfiltration, credential harvesting, crypto mining)\n2. Undeclared capabilities (network calls without network permission, filesystem access)\n3. Code that could harm the user or their scores\n4. Obfuscated code or suspicious patterns\n5. If this is an update: does the diff introduce anything suspicious that wasn't there before?\n\nRespond with ONLY one of:\nAPPROVED — <one-line summary>\nFLAGGED — <reason>\n\nDo not add any other text.")
+                  }]
+                }')" )
+
+            verdict=$(echo "$response" | jq -r '.content[0].text' 2>/dev/null)
+            echo "AI review for $plugin: $verdict"
+
+            if echo "$verdict" | grep -q '^FLAGGED'; then
+              echo "::warning::AI flagged $plugin: $verdict"
+              # Don't fail — just flag for human review
+              gh pr label ${{ github.event.pull_request.number }} --add "needs-review" 2>/dev/null || true
+            else
+              echo "✓ $plugin AI review passed"
+            fi
+          done
+
+  update-index:
+    runs-on: ubuntu-latest
+    needs: [validate, ai-review]
+    if: github.event.pull_request.merged == true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild index.json
+        run: |
+          echo '{"version":1,"plugins":[' > index.json.tmp
+          first=true
+          for manifest in plugins/*/plugin.json; do
+            [ -f "$manifest" ] || continue
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo ',' >> index.json.tmp
+            fi
+            cat "$manifest" >> index.json.tmp
+          done
+          echo ']}' >> index.json.tmp
+          jq '.' index.json.tmp > index.json
+          rm index.json.tmp
+
+      - name: Commit updated index
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.json
+          git diff --cached --quiet || git commit -m "Update index.json" && git push
