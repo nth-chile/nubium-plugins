@@ -145,14 +145,22 @@ jobs:
             echo "AI review for $plugin: $verdict"
 
             if echo "$verdict" | grep -q '^FLAGGED'; then
-              echo "::warning::AI flagged $plugin: $verdict"
+              echo "::error::AI flagged $plugin: $verdict"
+              gh pr comment ${{ github.event.pull_request.number }} --body "**AI Review: FLAGGED** - \`$plugin\`"$'\n\n'"$verdict" 2>/dev/null || true
               gh pr label ${{ github.event.pull_request.number }} --add "needs-review" 2>/dev/null || true
+              flagged=1
             else
+              gh pr comment ${{ github.event.pull_request.number }} --body "**AI Review: APPROVED** - \`$plugin\`"$'\n\n'"$verdict" 2>/dev/null || true
               echo "✓ $plugin AI review passed"
             fi
 
             rm -f /tmp/request.json
           done
+
+          if [ "${flagged:-0}" = "1" ]; then
+            echo "One or more plugins were flagged. Failing review."
+            exit 1
+          fi
 
   update-index:
     runs-on: ubuntu-latest
