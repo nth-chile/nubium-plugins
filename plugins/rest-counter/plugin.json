@@ -1,0 +1,10 @@
+{
+  "id": "rest-counter",
+  "name": "Rest Counter",
+  "version": "1.0.0",
+  "description": "Counts the total rests in your score",
+  "author": "test-contributor",
+  "minAppVersion": "0.1.0",
+  "main": "dist/index.js",
+  "permissions": ["score-read"]
+}
