@@ -1,15 +1,4 @@
 {
   "version": 1,
-  "plugins": [
-    {
-      "id": "hello-world",
-      "name": "Hello World",
-      "version": "1.0.0",
-      "description": "A simple test plugin that adds a greeting command",
-      "author": "nth-chile",
-      "minAppVersion": "0.1.0",
-      "main": "dist/index.js",
-      "permissions": []
-    }
-  ]
+  "plugins": []
 }

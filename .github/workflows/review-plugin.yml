@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
-  issues: write
 
 jobs:
   validate:
@@ -35,7 +33,6 @@ jobs:
               exit 1
             fi
 
-            # Check required fields
             for field in id name version description author minAppVersion main; do
               val=$(jq -r ".$field" "$manifest")
               if [ "$val" = "null" ] || [ -z "$val" ]; then
@@ -44,21 +41,18 @@ jobs:
               fi
             done
 
-            # Check id matches directory name
             id=$(jq -r '.id' "$manifest")
             if [ "$id" != "$plugin" ]; then
               echo "::error::Plugin id '$id' does not match directory name '$plugin'"
               exit 1
             fi
 
-            # Check bundle exists
             main=$(jq -r '.main' "$manifest")
             if [ ! -f "$dir/$main" ]; then
               echo "::error::Bundle file '$main' not found in $dir"
               exit 1
             fi
 
-            # Check source exists
             if [ ! -d "$dir/src" ]; then
               echo "::error::Source directory 'src/' not found in $dir"
               exit 1
@@ -73,7 +67,6 @@ jobs:
             dir="plugins/$plugin"
             echo "Scanning $plugin..."
 
-            # Check for dangerous patterns in source
             if grep -rn 'eval\s*(' "$dir/src/" 2>/dev/null; then
               echo "::error::eval() found in $dir/src/"
               exit 1
@@ -89,7 +82,6 @@ jobs:
               exit 1
             fi
 
-            # Check for undeclared network usage
             permissions=$(jq -r '.permissions // [] | .[]' "$dir/plugin.json")
             if echo "$permissions" | grep -q 'network'; then
               echo "  Network permission declared - skipping fetch check"
@@ -128,7 +120,6 @@ jobs:
             source=$(find "$dir/src" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) | head -20 | xargs cat 2>/dev/null)
             diff=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.sha }} -- "$dir/")
 
-            # Build request body as a file to avoid shell quoting issues
             jq -n \
               --arg manifest "$manifest" \
               --arg source "$source" \
@@ -153,11 +144,8 @@ jobs:
 
             if echo "$verdict" | grep -q '^FLAGGED'; then
               echo "::error::AI flagged $plugin: $verdict"
-              gh pr comment ${{ github.event.pull_request.number }} --body "**AI Review: FLAGGED** - \`$plugin\`"$'\n\n'"$verdict" 2>/dev/null || true
-              gh pr label ${{ github.event.pull_request.number }} --add "needs-review" 2>/dev/null || true
               flagged=1
             else
-              gh pr comment ${{ github.event.pull_request.number }} --body "**AI Review: APPROVED** - \`$plugin\`"$'\n\n'"$verdict" 2>/dev/null || true
               echo "✓ $plugin AI review passed"
             fi
 
@@ -165,7 +153,7 @@ jobs:
           done
 
           if [ "${flagged:-0}" = "1" ]; then
-            echo "One or more plugins were flagged. Failing review."
+            echo "One or more plugins were flagged."
             exit 1
           fi
 
