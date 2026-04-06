@@ -4,24 +4,12 @@
     {
       "id": "hello-world",
       "name": "Hello World",
-      "version": "1.0.0",
-      "description": "A simple test plugin that adds a greeting command",
+      "version": "1.1.0",
+      "description": "Greeting commands for Nubium",
       "author": "nth-chile",
       "minAppVersion": "0.1.0",
       "main": "dist/index.js",
       "permissions": []
-    },
-    {
-      "id": "note-counter",
-      "name": "Note Counter",
-      "version": "1.0.0",
-      "description": "Counts the total notes in your score",
-      "author": "nth-chile",
-      "minAppVersion": "0.1.0",
-      "main": "dist/index.js",
-      "permissions": [
-        "score-read"
-      ]
     }
   ]
 }
