@@ -1,0 +1,10 @@
+{
+  "id": "note-counter",
+  "name": "Note Counter",
+  "version": "1.0.0",
+  "description": "Counts the total notes in your score and shows the result",
+  "author": "nth-chile",
+  "minAppVersion": "0.1.0",
+  "main": "dist/index.js",
+  "permissions": ["score-read"]
+}
