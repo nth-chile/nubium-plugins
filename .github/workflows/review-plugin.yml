@@ -118,36 +118,40 @@ jobs:
           for plugin in ${{ steps.changed.outputs.plugins }}; do
             dir="plugins/$plugin"
             manifest=$(cat "$dir/plugin.json")
-            source=$(find "$dir/src" -type f -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' | head -20 | xargs cat 2>/dev/null)
+            source=$(find "$dir/src" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) | head -20 | xargs cat 2>/dev/null)
             diff=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.sha }} -- "$dir/")
+
+            # Build request body as a file to avoid shell quoting issues
+            jq -n \
+              --arg manifest "$manifest" \
+              --arg source "$source" \
+              --arg diff "$diff" \
+              '{
+                model: "claude-sonnet-4-20250514",
+                max_tokens: 1024,
+                messages: [{
+                  role: "user",
+                  content: ("Review this Nubium plugin submission for security issues.\n\nManifest:\n" + $manifest + "\n\nSource code:\n" + $source + "\n\nDiff (if update):\n" + $diff + "\n\nCheck for:\n1. Malicious behavior (data exfiltration, credential harvesting, crypto mining)\n2. Undeclared capabilities (network calls without network permission, filesystem access)\n3. Code that could harm the user or their scores\n4. Obfuscated code or suspicious patterns\n5. If this is an update: does the diff introduce anything suspicious that wasn\'t there before?\n\nRespond with ONLY one of:\nAPPROVED - one-line summary\nFLAGGED - reason\n\nDo not add any other text.")
+                }]
+              }' > /tmp/request.json
 
             response=$(curl -s https://api.anthropic.com/v1/messages \
               -H "content-type: application/json" \
               -H "x-api-key: $ANTHROPIC_API_KEY" \
               -H "anthropic-version: 2023-06-01" \
-              -d "$(jq -n \
-                --arg manifest "$manifest" \
-                --arg source "$source" \
-                --arg diff "$diff" \
-                '{
-                  model: "claude-sonnet-4-20250514",
-                  max_tokens: 1024,
-                  messages: [{
-                    role: "user",
-                    content: ("Review this Nubium plugin submission for security issues.\n\nManifest:\n" + $manifest + "\n\nSource code:\n" + $source + "\n\nDiff (if update):\n" + $diff + "\n\nCheck for:\n1. Malicious behavior (data exfiltration, credential harvesting, crypto mining)\n2. Undeclared capabilities (network calls without network permission, filesystem access)\n3. Code that could harm the user or their scores\n4. Obfuscated code or suspicious patterns\n5. If this is an update: does the diff introduce anything suspicious that wasn't there before?\n\nRespond with ONLY one of:\nAPPROVED - <one-line summary>\nFLAGGED - <reason>\n\nDo not add any other text.")
-                  }]
-                }')" )
+              -d @/tmp/request.json)
 
             verdict=$(echo "$response" | jq -r '.content[0].text' 2>/dev/null)
             echo "AI review for $plugin: $verdict"
 
             if echo "$verdict" | grep -q '^FLAGGED'; then
               echo "::warning::AI flagged $plugin: $verdict"
-              # Don't fail - just flag for human review
               gh pr label ${{ github.event.pull_request.number }} --add "needs-review" 2>/dev/null || true
             else
               echo "✓ $plugin AI review passed"
             fi
+
+            rm -f /tmp/request.json
           done
 
   update-index:
