@@ -19,7 +19,7 @@ jobs:
       - name: Find changed plugins
         id: changed
         run: |
-          plugins=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep '^plugins/' | cut -d/ -f2 | sort -u)
+          plugins=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep '^plugins/' | cut -d/ -f2 | sort -u | tr '\n' ' ')
           echo "plugins=$plugins" >> $GITHUB_OUTPUT
 
       - name: Validate manifests
@@ -107,7 +107,7 @@ jobs:
       - name: Find changed plugins
         id: changed
         run: |
-          plugins=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep '^plugins/' | cut -d/ -f2 | sort -u)
+          plugins=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep '^plugins/' | cut -d/ -f2 | sort -u | tr '\n' ' ')
           echo "plugins=$plugins" >> $GITHUB_OUTPUT
 
       - name: AI security review
