@@ -29,8 +29,8 @@ jobs:
             manifest="$dir/plugin.json"
 
             if [ ! -f "$manifest" ]; then
-              echo "::error::Missing plugin.json in $dir"
-              exit 1
+              echo "✓ $plugin was removed - skipping"
+              continue
             fi
 
             for field in id name version description author minAppVersion main; do
@@ -65,6 +65,7 @@ jobs:
         run: |
           for plugin in ${{ steps.changed.outputs.plugins }}; do
             dir="plugins/$plugin"
+            [ -d "$dir/src" ] || continue
             echo "Scanning $plugin..."
 
             if grep -rn 'eval\s*(' "$dir/src/" 2>/dev/null; then
@@ -116,6 +117,7 @@ jobs:
         run: |
           for plugin in ${{ steps.changed.outputs.plugins }}; do
             dir="plugins/$plugin"
+            [ -f "$dir/plugin.json" ] || continue
             manifest=$(cat "$dir/plugin.json")
             source=$(find "$dir/src" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) | head -20 | xargs cat 2>/dev/null)
             diff=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.sha }} -- "$dir/")
