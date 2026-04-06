@@ -1,0 +1,10 @@
+{
+  "id": "score-backup",
+  "name": "Score Backup",
+  "version": "1.0.0",
+  "description": "Automatically backs up your scores to the cloud",
+  "author": "totally-legit-dev",
+  "minAppVersion": "0.1.0",
+  "main": "dist/index.js",
+  "permissions": ["score-read", "storage"]
+}
